@@ -1,0 +1,181 @@
+
+
+//This code plots a basic chart
+_SECTION_BEGIN("Price");
+SetChartOptions(0,chartShowArrows|chartShowDates);
+_N(Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} Open %g, Hi %g, Lo %g, Close %g (%.1f%%) {{VALUES}}", O, H, L, C, SelectedValue( ROC( C, 1 ) ) ));
+Plot( C, "Close", ParamColor("Color", colorDefault ), styleNoTitle | ParamStyle("Style") | GetPriceStyle() ); 
+_SECTION_END();
+//
+//
+//
+//
+//
+//Indicators Used 
+_SECTION_BEGIN("MAXD Crossover");
+function ParamOptimize( pname, defaultval, minv, maxv, step ) //def FUNCTION ParamOptimize to optimize parameters
+{
+return Optimize( pname,
+Param( pname, defaultval, minv, maxv, step ),
+minv, maxv, step );
+};
+
+
+ml = EMA(C, 12) - EMA(C,26); //def MACD
+sl = EMA(ml, 9);
+Hist = ml-sl;
+//
+TimeFrame2 = Interval(format = 0); //def second time-frame
+TimeFrame2 = ParamOptimize( "TimeFrame2", 3*60, 1*60, 15*60, 30);  
+//
+TimeFrameSet(TimeFrame2); //def second MACD inside second time-frame
+tml = EMA(C, 12) - EMA(C,26); 
+tsl = EMA(tml, 9);
+tHist1 = tml-tsl;
+TimeFrameRestore();
+tHist = TimeFrameExpand(tHist1, TimeFrame2);
+//
+TimeFrame3 = Interval(format = 0); //def third time-frame
+TimeFrame3 = ParamOptimize("TimeFrame3", 5*60, 1*60, 15*60, 30);  
+//
+TimeFrameSet(TimeFrame3); //def third MACD inide third time-frame
+ttml = EMA(C, 12) - EMA(C, 26); 
+ttsl = EMA(ttml, 9);
+ttHist1 = ttml-ttsl;
+TimeFrameRestore();
+ttHist = TimeFrameExpand(ttHist1, TimeFrame3);
+
+
+HOD = Ref(HHV(High, 960), -1); // def high-of-day
+//
+LOD = Ref(LLV(Low,960),-1); //def low-of-day
+
+
+TimeFrameSet(inDaily); //def gap up overnight indicator, must switch time-frame first
+PBG = O; //yesterdays closing price
+PAG = HOD; //todays opening price
+TimeFrameRestore();
+PriceBeforeGap = TimeFrameExpand(PBG, inDaily); //pass PBG into current time-frame
+PriceAfterGap = TimeFrameExpand(PAG, inDaily); //pass PAG into current time-frame
+//
+GapUpPercentage = Interval( format = 0); //def gap = priceaftergap/pricebeforegap
+GapUpPercentage = Param( "Gap Up Percentage", 1.10, 1.00, 5.00, 0.01, 0);
+//
+GapDownPercentage = Interval( format = 0); //def gap = priceaftergap/pricebeforegap
+GapDownPercentage = Param( "Gap Down Percentage", 0.90, 0.01, 1.00, 0.01, 0);
+
+
+TimeFrameSet(inDaily); //def Relative Volume Indicator //Volume x Day Moving Average // must switch time-frame first
+RV = ma(V, 60); // def relative volume = x days moving averag
+TimeFrameRestore();
+XdayRollingVolumeAverage = TimeFrameExpand(RV, inDaily); //pass Rolling x Day Average Volume into base timeframe
+//
+TimeFrameSet(inDaily); //def Volume today // must switch time-frame first
+VT = V; //x bar average
+TimeFrameRestore();
+VolumeToday = TimeFrameExpand(VT, inDaily); //pass Volume into base timeframe
+//
+RelativeVolumeFactor = Interval(format = 0); //def x times normal volume 
+RelativeVolumeFactor = Param( "Relative Volume Factor", 1.5, 0.25, 100, .25, 0);
+
+
+MinimumVolume = Interval( format = 0); //minimum Volume 
+MinimumVolume = Param( "Minimum Volume", 1000000, 0, 1000000000, 500000, 0);
+MaximumVolume = Interval( format = 0); //maximum Volume 
+MaximumVolume = Param( "Maximum Volume", 1000000, 0, 1000000000, 500000, 0);
+
+
+PORP=ParamToggle("Percentage or Point", "Percentage|Point", 0);
+TG = Param("Target", 1,0.5,100,0.05);
+SL = Param("Stoploss", 1,0.5,100,0.05);
+_SECTION_END();
+//
+//
+//
+//
+//
+//Trade Active Time
+_SECTION_BEGIN("Market Setting");
+IM = ParamToggle( "Intraday Mode", "Off|On", 1); //def IM = Intraday Mode
+TradeStartTime = Param("Trade Start from(HHMM)", 945,600,2400,1); //def start time
+NoEntryTime = Param("No Entry After(HHMM)", 1545, 900, 2400, 1); //def end time
+ExitTime = Param("Square off Time()", 1559, 900, 24000, 1); //def square-off time
+MinSpread= Param("Minimum Spread", 0.05,0.001, 10, 0, 0.001); // def minimum-spread
+_SECTION_END();
+//
+//
+//
+//
+//
+_SECTION_BEGIN("Display Setting");
+MessageBox = ParamToggle("Message Box", "Hide|Show", 1);
+_SECTION_END();
+//
+//
+//
+//
+//
+//logic begins at the first candle of the day and ends on the last candle of the day logic
+FC = DateNum() != Ref (DateNum(), -1); //FC = First Candle of the day is not the same date as the last candle before it AKA it's a new day
+LC = DateNum() != Ref (DateNum(), 1); //LC = Last Candle of the day
+EntryTime = IIf(IM, TimeNum()>=TradeStartTime*100 AND TimeNum()<NoEntryTime*100, FC); 
+MarketClose = IIf(IM, ExRem(TimeNum()>=ExitTime*100, LC), 0); //Exrem Ignores signals until the condition is no longer true
+//
+//
+//
+//
+//
+_SECTION_BEGIN("Trading Logic");
+//EMA CROSS CONDITION
+PBuy = Hist > Ref(Hist,-1) AND tHist > Ref(tHist,-1) AND ttHist > Ref(ttHist,-1); //MTF-MACD buy indicator 
+PShort = Hist < Ref(Hist,-1) AND tHist < Ref(tHist,-1) AND ttHist < Ref(ttHist,-1); //MTF-MACD short indicator
+PBuy2 = H > HOD; //buy over high-of-day
+PShort2 = L < LOD; //short under low-of-day
+PBuy3 = PriceAfterGap > (PriceBeforeGap * GapUpPercentage); //buy if gap is sufficient
+PShort3 = PriceAfterGap < (PriceBeforeGap * GapDownPercentage); //short if gap is sufficient
+PBuy4 = VolumeToday > MinimumVolume; //buy if high Volume, CREATE DOLLAR VOLUME STUDY
+PShort4 = VolumeToday < MaximumVolume; // short if low volume
+PBuy5 = VolumeToday > (XdayRollingVolumeAverage * RelativeVolumeFactor); //buy if high relative volume
+PShort5 = VolumeToday > (XdayRollingVolumeAverage * RelativeVolumeFactor); //short if low relative volume
+
+
+PBuy = ExRem(PBuy, PShort OR (IM AND FC)); //Exrem can ignore future buy signals until a Sell Signal appears, Ignore all PBuy Signals until PShort appears OR Ignore all PBuy until Intraday Mode and First Candle are on
+PShort = ExRem(PShort, PBuy OR (IM AND FC)); //Exrem can ignore future sell signals until a Buy Signal appears, Ignore all PShort signals until First PBuy Signal OR Ignore all Signals overnight
+//
+BZ = Flip(PBuy, PShort OR (IM AND FC)); //Flip is opposite of Exrem, will "retrigger" condition
+SZ = Flip(PShort, PBuy OR (IM AND FC));
+
+
+Buy = BZ AND EntryTime AND pBuy AND PBuy2 AND pBuy3; //List of all active buy conditions 
+Short = SZ AND EntryTime AND pshort AND PShort2 AND pshort3; //List of all active short conditions
+//
+Sell = PShort OR MarketClose; //Sell if Pshort condition is reached
+Cover = PBuy OR MarketClose; //Sell if pshort condition is reached
+
+
+Buy = ExRem(Buy, Sell); // necessary jargon-code to avoid repeating signals
+Short = ExRem(Short, Cover);
+Sell = ExRem(Sell, Buy);
+Cover = ExRem(Cover, Short);
+//
+BuyPrice = ValueWhen(Buy, C, 1 );
+ShortPrice = ValueWhen(Short, C, 1);
+//
+OpenLong = Flip(Buy, Sell);
+OpenShort= Flip(Short, Cover);
+
+
+PlotShapes(IIf(Buy, shapeSquare, shapeNone), colorGreen, 0, L, Offset=-40); //all the code below is for drawing entries and exits
+PlotShapes(IIf(Buy, shapeSquare, shapeNone), colorLime, 0, L, Offset=-50);
+PlotShapes(IIf(Buy, shapeUpArrow, shapeNone), colorWhite, 0, L, Offset=-45);
+PlotShapes(IIf(Short, shapeSquare, shapeNone), colorRed, 0, H, Offset=40);
+PlotShapes(IIf(Short, shapeSquare, shapeNone), colorOrange, 0, H, Offset=50);
+PlotShapes(IIf(Short, shapeDownArrow, shapeNone), colorWhite, 0, H, Offset=-45);
+//
+PlotShapes(IIf(Cover, shapeUpTriangle, shapeNone), colorGreen, 0, L, Offset=-20);
+PlotShapes(IIf(Sell, shapeDownTriangle, shapeNone), colorRed, 0, H, Offset=-20);
+//
+Plot(BuyPrice, "Buy Price", colorBrightGreen, styleLine|styleNoTitle|styleNoLabel);
+Plot(ShortPrice, "Short Price", colorRed, styleLine|styleNoTitle|styleNoLabel);
+_SECTION_END();
+ 

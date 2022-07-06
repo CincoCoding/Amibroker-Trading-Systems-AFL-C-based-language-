@@ -1,0 +1,105 @@
+
+
+// This basic plot chart is canned code
+_SECTION_BEGIN("Plot Chart");
+SetChartOptions(0,chartShowArrows|chartShowDates);
+_N(Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} Open %g, Hi %g, Lo %g, Close %g (%.1f%%) {{VALUES}}", O, H, L, C, SelectedValue( ROC( C, 1 ) ) ));
+Plot( C, "Close", ParamColor("Color", colorDefault ), styleNoTitle | ParamStyle("Style") | GetPriceStyle() ); 
+_SECTION_END();//
+
+
+_SECTION_BEGIN("Defined Variables");
+ // def FUNCTION ParamOptimize to optimize parameters
+function ParamOptimize( pname, defaultval, minv, maxv, step )
+{
+return Optimize( pname,
+Param( pname, defaultval, minv, maxv, step ),
+minv, maxv, step );
+};
+
+// change timeframe to get other time frame variables
+TimeFrame2 = Interval(format = 0); // def larger time-frame as an adjustable interval variable
+TimeFrame2 = Param( "TimeFrame2", 5*60, 1*60, 15*60, 30);  
+//change timeframe to larger time-frame and get higher time-frame moving averages, levels, et
+TimeFrameSet(TimeFrame2); // change time-frame
+fastEMA1 = EMA(Close, 9); //higher timeframe variables
+slowEMA1 = EMA(Close, 20);
+TwoHundredSMA1 = MA(Close, 200);
+EMAdiff1 = fastEMA1 - slowEMA1;
+TimeFrameRestore(); // back to original time-frame
+// extract theses levels to original time-frame, assign to new variables
+EMAdiff = TimeFrameExpand(EMAdiff1, TimeFrame2);
+fastEMA = TimeFrameExpand(fastEMA1, TimeFrame2); 
+slowEMA = TimeFrameExpand(slowEMA1, TimeFrame2);
+TwoHundredSMA = TimeFrameExpand(TwoHundredSMA1, TimeFrame2);
+
+// def bounce using multiple variables
+bouncy = ATR(1) > 1; // this means the bounce at the EMA moved price at least 1pt
+// def bounce direction
+upCandle = C > L; // def candle closed higher
+downCandle = C < H; // def candle closed lower
+// def bounce location near fastEMA
+EMAbounceUP = L >= (fastEMA - 0.5) AND L <= (fastEMA + 0.5); // low of candle closed greater than or equal to the fastEMA +/-0.5pts
+EMAbounceDOWN = H >= (fastEMA - 0.5) AND H <= (fastEMA + 0.5); // high of candle closed less than or equal to the fastEMA +/-0.5pts
+
+// def time above EMA level, it takes time above a level to increase odds of bouncing off a level
+timeAboveEMAs = BarsSince(Low < fastEMA OR Low < slowEMA); // how much time has passed since breaking an EMA (uptrend)
+timeBelowEMAs = BarsSince(High > fastEMA OR High > slowEMA); // how much time has passed since breaking an EMA (downtrend)
+fromAbove = timeAboveEMAs > 900; // at least 15 minutes(900seconds) above EMAs
+fromBelow = timeBelowEMAs > 900;  // at least 15 minutes below EMAs
+
+//above/below 5min 200SMA, indicates if higher time-frame supply is above or below us
+above200SMA = C > TwoHundredSMA; // We're above the higher time-frame EMA
+below200SMA = C < TwoHundredSMA; // We're below the higher time-frame EMA
+
+//stops
+TG = Interval( format = 0);
+TG = ParamOptimize("Target", 3, 0.25, 8, 0.25); // profit target initialized for optimization
+SL = Interval( format = 0);
+SL = ParamOptimize("Stoploss", 2, -2, 5, 0.25); // stoploss initialized for optimization
+
+_SECTION_END();
+
+
+_SECTION_BEGIN("Open/Close Conditions"); 
+// We are buying/selling bounces at the EMAs in an uptrend/downtrend accordingly
+Buy = EMAdiff > 3 // higher time-frame EMA's are opened up (indicating trend-up)
+	AND above200SMA // supply is below us
+	AND fromAbove // we've spent significant time above the fastEMA
+	AND upCandle // candle closed up
+	AND bouncy // orderflow
+	AND EMAbounceUP; // bounce location near EMA;
+Short = EMAdiff < -3 // trend-down
+	AND below200SMA //higher timeframe supply above us
+	AND fromBelow // spent time below fast EMA
+	AND downCandle // closed down
+	AND bouncy // orderflow
+	AND EMAbounceDOWN // bounce location near EMA;
+
+// either hit profit target or close position if we break slowEMA
+ApplyStop( stopTypeProfit, stopModePoint, TG, True ); // profit target is point based
+Sell = L < slowEMA - SL; // secondary stop, close long if we close below slowEMA
+Cover = H > slowEMA + SL; // secondary stop, close short it we close above slowEMA
+
+_SECTION_END();
+
+
+_SECTION_BEGIN("Drawings");
+//all the code below is for drawing entries and exits on chart plot and is canned code
+PlotShapes(IIf(Buy, shapeSquare, shapeNone), colorGreen, 0, L, Offset=-40);
+PlotShapes(IIf(Buy, shapeSquare, shapeNone), colorLime, 0, L, Offset=-50);
+PlotShapes(IIf(Buy, shapeUpArrow, shapeNone), colorWhite, 0, L, Offset=-45);
+PlotShapes(IIf(Short, shapeSquare, shapeNone), colorRed, 0, H, Offset=40);
+PlotShapes(IIf(Short, shapeSquare, shapeNone), colorOrange, 0, H, Offset=50);
+PlotShapes(IIf(Short, shapeDownArrow, shapeNone), colorWhite, 0, H, Offset=-45);
+//
+PlotShapes(IIf(Cover, shapeUpTriangle, shapeNone), colorGreen, 0, L, Offset=-20);
+PlotShapes(IIf(Sell, shapeDownTriangle, shapeNone), colorRed, 0, H, Offset=-20);
+//
+Plot(BuyPrice, "Buy Price", colorBrightGreen, styleLine|styleNoTitle|styleNoLabel);
+Plot(ShortPrice, "Short Price", colorRed, styleLine|styleNoTitle|styleNoLabel);
+
+
+_SECTION_END();
+
+

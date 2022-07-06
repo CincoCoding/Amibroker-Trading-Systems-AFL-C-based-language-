@@ -1,0 +1,50 @@
+
+
+//This code plots a basic chart
+_SECTION_BEGIN("Price");
+SetChartOptions(0,chartShowArrows|chartShowDates);
+_N(Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} Open %g, Hi %g, Lo %g, Close %g (%.1f%%) {{VALUES}}", O, H, L, C, SelectedValue( ROC( C, 1 ) ) ));
+Plot( C, "Close", ParamColor("Color", colorDefault ), styleNoTitle | ParamStyle("Style") | GetPriceStyle() ); 
+_SECTION_END();//
+
+
+_SECTION_BEGIN("Defined Variables");
+function ParamOptimize( pname, defaultval, minv, maxv, step ) //def FUNCTION ParamOptimize to optimize parameters
+{
+return Optimize( pname,
+Param( pname, defaultval, minv, maxv, step ),
+minv, maxv, step );
+};
+
+TG = Interval( format = 0);
+TG = ParamOptimize("Target", 4, 0.25, 10, 0.25);
+
+SL = Interval( format = 0);
+SL = ParamOptimize("Stoploss", 4, 0.25, 10, 0.25);
+
+
+_SECTION_END();
+
+
+_SECTION_BEGIN("Open/Close Conditions");
+Buy = 	Close > Ref( Close , -1 )
+	AND ATR( 1 ) >= 2
+	AND LLVBars(  Close , 15 ) < 4;
+
+Short = 	Close < Ref( Close , -1 )
+	AND ATR( 1 ) >= 2
+	AND HHVBars(  Close , 15 ) < 4;
+	
+Sell = 0;
+
+Cover = 0; 
+
+
+ApplyStop(1, 2, TG, 0, False, 15, 1, -1);
+ApplyStop(0, 2, SL, 0, False, 15, 1, -1);
+
+
+
+_SECTION_END();
+
+
